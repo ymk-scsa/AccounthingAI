@@ -1,0 +1,12 @@
+EDINET_API/config.py
+
+# ダウンロードした実データ（容量が大きく、公開すべきでないため）
+data/
+
+# 実行ログと進捗管理ファイル
+EDINET_API/download.log
+EDINET_API/progress.json
+
+# Pythonのキャッシュ
+__pycache__/
+*.pyc
