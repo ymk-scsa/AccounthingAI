@@ -68,7 +68,7 @@ def load_progress() -> dict:
     if PROGRESS_FILE.exists():
         with open(PROGRESS_FILE, encoding="utf-8") as f:
             return json.load(f)
-    return {"scanned_months": [], "downloaded": []}
+    return {"scanned_days": [], "downloaded": []}
 
 
 def save_progress(progress: dict) -> None:
@@ -284,7 +284,7 @@ def download_doc(doc: dict, company_name: str, progress: dict) -> None:
 def run() -> None:
     """
     メインダウンロード処理。
-    月初日スキャン戦略で10年分を効率的に取得する。
+    全日スキャン戦略（3,650日）で抜けなく10年分を取得する。
     """
     # API キー確認
     if EDINET_API_KEY == "YOUR_API_KEY_HERE":
@@ -303,31 +303,33 @@ def run() -> None:
     edinet_codes = set(companies.keys())
     log.info("対象: 製造業 %d 社", len(edinet_codes))
 
-    # Step 2: スキャン対象の月リストを生成（月初日のみ）
-    today      = datetime.today().replace(day=1)
-    start_date = today - relativedelta(years=SCAN_YEARS)
+    # Step 2: スキャン対象の全日リストを生成（3,650日）
+    from datetime import timedelta
+    today      = datetime.today()
+    start_date = today - timedelta(days=365 * SCAN_YEARS)
 
-    scan_months: list[datetime] = []
+    scan_days: list[datetime] = []
     cur = start_date
     while cur <= today:
-        month_key = cur.strftime("%Y-%m")
-        if month_key not in progress["scanned_months"]:
-            scan_months.append(cur)
-        cur += relativedelta(months=1)
+        day_key = cur.strftime("%Y-%m-%d")
+        if day_key not in progress["scanned_days"]:
+            scan_days.append(cur)
+        cur += timedelta(days=1)
 
+    total_days = 365 * SCAN_YEARS
     log.info(
-        "スキャン対象: %d ヶ月分 (済み %d ヶ月をスキップ)",
-        len(scan_months),
-        SCAN_YEARS * 12 - len(scan_months),
+        "スキャン対象: %d 日分 (済み %d 日をスキップ)",
+        len(scan_days),
+        total_days - len(scan_days),
     )
 
-    # Step 3: 月ごとにスキャン → ダウンロード
+    # Step 3: 1日ずつスキャン → ダウンロード
     total_docs = 0
-    for i, month in enumerate(scan_months, 1):
-        month_key = month.strftime("%Y-%m")
-        log.info("[%d/%d] 📅 %s をスキャン中...", i, len(scan_months), month_key)
+    for i, day in enumerate(scan_days, 1):
+        day_key = day.strftime("%Y-%m-%d")
+        log.info("[%d/%d] 📅 %s をスキャン中...", i, len(scan_days), day_key)
 
-        docs = fetch_document_list(month)
+        docs = fetch_document_list(day)
         targets = filter_target_docs(docs, edinet_codes)
 
         if targets:
@@ -339,8 +341,8 @@ def run() -> None:
                 total_docs += 1
                 time.sleep(REQUEST_INTERVAL_SEC)
 
-        # 月のスキャン完了を記録
-        progress["scanned_months"].append(month_key)
+        # 日のスキャン完了を記録
+        progress["scanned_days"].append(day_key)
         save_progress(progress)
 
     log.info("=" * 60)
