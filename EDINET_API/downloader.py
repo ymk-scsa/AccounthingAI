@@ -22,7 +22,7 @@ import json
 import logging
 import time
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -67,13 +67,28 @@ PROGRESS_FILE = EDINET_DIR / "progress.json"
 def load_progress() -> dict:
     if PROGRESS_FILE.exists():
         with open(PROGRESS_FILE, encoding="utf-8") as f:
-            return json.load(f)
-    return {"scanned_days": [], "downloaded": []}
-
+            data = json.load(f)
+        # リストをsetに変換してO(1)検索を可能にする
+        data["scanned_set"]   = set(data.get("scanned_days", []))
+        data["downloaded_set"] = set(data.get("downloaded", []))
+        return data
+    return {
+        "scanned_days":   [],
+        "downloaded":     [],
+        "scanned_set":    set(),
+        "downloaded_set": set(),
+    }
 
 def save_progress(progress: dict) -> None:
+    # setはJSONに保存できないのでリストに同期してから保存
+    progress["scanned_days"] = list(progress["scanned_set"])
+    progress["downloaded"]   = list(progress["downloaded_set"])
+    saveable = {
+        "scanned_days": progress["scanned_days"],
+        "downloaded":   progress["downloaded"],
+    }
     with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
-        json.dump(progress, f, ensure_ascii=False, indent=2)
+        json.dump(saveable, f, ensure_ascii=False, indent=2)
 
 
 # ============================================================
@@ -259,7 +274,7 @@ def download_doc(doc: dict, company_name: str, progress: dict) -> None:
         progress_key = f"{doc_id}_{fmt}"
 
         # 重複スキップ（ファイル存在 or 進捗記録）
-        if save_path.exists() or progress_key in progress["downloaded"]:
+        if save_path.exists() or progress_key in progress["downloaded_set"]:
             continue
 
         url = f"{EDINET_BASE_URL}/documents/{doc_id}"
@@ -273,7 +288,7 @@ def download_doc(doc: dict, company_name: str, progress: dict) -> None:
             for chunk in res.iter_content(chunk_size=8192):
                 f.write(chunk)
 
-        progress["downloaded"].append(progress_key)
+        progress["downloaded_set"].add(progress_key)
         log.info("✅ %s [%s] %s → %s", company_name, fmt.upper(), doc_id, save_path.name)
         time.sleep(DOWNLOAD_INTERVAL_SEC)
 
@@ -304,7 +319,7 @@ def run() -> None:
     log.info("対象: 製造業 %d 社", len(edinet_codes))
 
     # Step 2: スキャン対象の全日リストを生成（3,650日）(閏年対応済み)
-    from dateutil.relativedelta import relativedelta
+    # 追加（relativedeltaはファイル冒頭に移動済みとして、run()内はこれだけ）
     today      = datetime.today()
     start_date = today - relativedelta(years=SCAN_YEARS)
 
@@ -312,15 +327,14 @@ def run() -> None:
     cur = start_date
     while cur <= today:
         day_key = cur.strftime("%Y-%m-%d")
-        if day_key not in progress["scanned_days"]:
+        if day_key not in progress["scanned_set"]:
             scan_days.append(cur)
         cur += timedelta(days=1)
 
-    total_days = 365 * SCAN_YEARS
     log.info(
         "スキャン対象: %d 日分 (済み %d 日をスキップ)",
         len(scan_days),
-        total_days - len(scan_days),
+        len(progress["scanned_set"]),
     )
 
     # Step 3: 1日ずつスキャン → ダウンロード
@@ -342,7 +356,7 @@ def run() -> None:
                 time.sleep(REQUEST_INTERVAL_SEC)
 
         # 日のスキャン完了を記録
-        progress["scanned_days"].append(day_key)
+        progress["scanned_set"].add(day_key)
         save_progress(progress)
 
     log.info("=" * 60)
