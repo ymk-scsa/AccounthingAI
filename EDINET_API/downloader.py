@@ -303,10 +303,10 @@ def run() -> None:
     edinet_codes = set(companies.keys())
     log.info("対象: 製造業 %d 社", len(edinet_codes))
 
-    # Step 2: スキャン対象の全日リストを生成（3,650日）
-    from datetime import timedelta
+    # Step 2: スキャン対象の全日リストを生成（3,650日）(閏年対応済み)
+    from dateutil.relativedelta import relativedelta
     today      = datetime.today()
-    start_date = today - timedelta(days=365 * SCAN_YEARS)
+    start_date = today - relativedelta(years=SCAN_YEARS)
 
     scan_days: list[datetime] = []
     cur = start_date
